@@ -1,24 +1,43 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import { Block, blockInsertAt, blockDeleteLastChar } from '@reiwuzen/blocky';
+import React, { useRef, useLayoutEffect, useCallback, useRef as useRefAlias } from 'react';
+import { Block, blockInsertAt, blockReplaceRange, flatToSelection } from '@reiwuzen/blocky';
 import { useEditorActions } from '../../hooks/useEditor';
 
 type Props = { block: Block<"code">; onFocus: (id: string) => void; };
 
 export function CodeBlock({ block, onFocus }: Props) {
-  const ref = useRef<HTMLPreElement>(null);
+  const ref         = useRef<HTMLElement>(null);
+  const lastContent = useRef('');
   const { updateBlock } = useEditorActions();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ref.current) return;
-    ref.current.textContent = block.content[0].text;
+    const text = block.content[0].text;
+    if (text === lastContent.current) return;
+    lastContent.current = text;
+    ref.current.textContent = text;
   }, [block.content]);
 
   const handleInput = useCallback(() => {
     if (!ref.current) return;
+    const sel    = window.getSelection();
+    const flat   = sel?.anchorOffset ?? 0;
     const text   = ref.current.textContent ?? '';
-    const offset = window.getSelection()?.anchorOffset ?? text.length;
-    blockInsertAt(block, 0, offset, { type: "code", text }).match(
-      (b) => updateBlock(b),
+    const char   = text[flat - 1] ?? '';
+    if (!char) return;
+
+    const hasSelection = sel && !sel.isCollapsed;
+    if (hasSelection) {
+      const start = Math.min(sel!.anchorOffset, sel!.focusOffset);
+      const end   = Math.max(sel!.anchorOffset, sel!.focusOffset);
+      blockReplaceRange(block, 0, start, 0, end, { type: "code", text: char }).match(
+        (b) => { lastContent.current = ''; updateBlock(b); },
+        () => {}
+      );
+      return;
+    }
+
+    blockInsertAt(block, 0, flat - 1, { type: "code", text: char }).match(
+      (b) => { lastContent.current = ''; updateBlock(b); },
       () => {}
     );
   }, [block, updateBlock]);
