@@ -230,3 +230,28 @@
 
 .blocky-type-option:hover          { background: #f0f4ff; }
 .blocky-type-option--active        { background: #f0f4ff; color: #4f6ef7; font-weight: 600; }
+
+/* ─── Updated structure ──────────────────────────────────────────────────────── */
+
+.blocky-block-wrapper {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* .blocky-block-content IS now the contentEditable */
+.blocky-block-content {
+  flex: 1;
+  outline: none;
+  min-height: 1.6em;
+  word-break: break-word;
+}
+
+.blocky-block-content:empty::before {
+  content: attr(data-placeholder);
+  color: #bbb;
+  pointer-events: none;
+}

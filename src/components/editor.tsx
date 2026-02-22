@@ -1,68 +1,80 @@
-import React, { createContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { AnyBlock, createBlock } from '@reiwuzen/blocky';
 import { createEditorStore, EditorStoreInstance } from '../store/editor-store';
 import { BlockList } from './blockList';
-
-// ─── Context ───────────────────────────────────────────────────────────────────
+import { domToNodes } from './blocks/editableContent';
 
 export const EditorContext = createContext<EditorStoreInstance | null>(null);
 
-// ─── Props ─────────────────────────────────────────────────────────────────────
-
 export type EditorProps = {
-  /** Controlled mode — pass blocks + onChange to own the state externally */
+  /** Seed blocks — hydrated once on mount */
   blocks?: AnyBlock[];
+
+  /**
+   * Called with serialized blocks when editable flips true → false.
+   * This is your "save" hook.
+   */
   onChange?: (blocks: AnyBlock[]) => void;
 
-  /** Uncontrolled mode — initial blocks only */
-  initialBlocks?: AnyBlock[];
-
-  /** Whether the editor is editable */
   editable?: boolean;
-
-  /** Additional className on the root element */
   className?: string;
-
-  /** Placeholder shown when editor is empty */
   placeholder?: string;
 };
 
-// ─── Editor ────────────────────────────────────────────────────────────────────
-
 export function Editor({
-  blocks: controlledBlocks,
+  blocks: seedBlocks,
   onChange,
-  initialBlocks,
   editable = true,
   className,
-  placeholder = "Start writing...",
+  placeholder = 'Start writing...',
 }: EditorProps) {
+  // Shared refs — owned here, passed down to every EditableContent span
+  const blockRefs     = useRef<Map<string, HTMLSpanElement>>(new Map());
+  const hydratedBlocks = useRef<Set<string>>(new Set());
+  const prevEditable  = useRef<boolean>(editable);
 
   const store = useMemo(
-    () => createEditorStore({ initialBlocks, onChange }),
+    () => createEditorStore({ initialBlocks: seedBlocks }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
-  // Sync controlled blocks into store when they change externally
-  const prevControlled = useRef<AnyBlock[] | undefined>(undefined);
-  useEffect(() => {
-    if (!controlledBlocks) return;
-    if (controlledBlocks === prevControlled.current) return;
-    prevControlled.current = controlledBlocks;
-    store.getState().setBlocks(controlledBlocks);
-  }, [controlledBlocks, store]);
-
-  // Seed with one empty paragraph if nothing provided
-  useEffect(() => {
+  // Seed store once on mount
+  useLayoutEffect(() => {
     const state = store.getState();
-    if (state.blocks.length === 0) {
-      createBlock("paragraph").match(
+    if (seedBlocks && seedBlocks.length > 0) {
+      state.setBlocks(seedBlocks);
+    } else if (state.blocks.length === 0) {
+      createBlock('paragraph').match(
         (b) => state.setBlocks([b]),
         () => {}
       );
     }
-  }, [store]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Serialize DOM → blocks when editable flips false (save)
+  useEffect(() => {
+    const wasEditable = prevEditable.current;
+    prevEditable.current = editable;
+
+    if (!wasEditable || editable) return; // only fires on true → false
+
+    const storeBlocks = store.getState().blocks;
+    const serialized: AnyBlock[] = storeBlocks.map((block) => {
+      const el = blockRefs.current.get(block.id);
+      if (!el) return block;
+
+      let content: any[];
+      if (block.type === 'code')     content = [{ type: 'code',     text:  el.textContent ?? '' }];
+      else if (block.type === 'equation') content = [{ type: 'equation', latex: el.textContent ?? '' }];
+      else content = domToNodes(el);
+
+      return { ...block, content } as AnyBlock;
+    });
+
+    onChange?.(serialized);
+  }, [editable, onChange, store]);
 
   return (
     <EditorContext.Provider value={store}>
@@ -70,7 +82,11 @@ export function Editor({
         className={`blocky-editor ${!editable ? 'blocky-editor--readonly' : ''} ${className ?? ''}`}
         data-placeholder={placeholder}
       >
-        <BlockList />
+        <BlockList
+          editable={editable}
+          blockRefs={blockRefs}
+          hydratedBlocks={hydratedBlocks}
+        />
       </div>
     </EditorContext.Provider>
   );

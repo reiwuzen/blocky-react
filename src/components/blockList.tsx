@@ -1,10 +1,17 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { useBlocks, useActiveBlockId, useEditorActions } from '../hooks/useEditor';
 import { Block } from './block';
 
-export function BlockList() {
-  const blocks          = useBlocks();
-  const activeBlockId   = useActiveBlockId();
+type Props = {
+  editable: boolean;
+  // expose refs to editor for DOM serialization on save
+  blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
+  hydratedBlocks: React.RefObject<Set<string>>;
+};
+
+export function BlockList({ editable, blockRefs, hydratedBlocks }: Props) {
+  const blocks        = useBlocks();
+  const activeBlockId = useActiveBlockId();
   const { setBlocks, setActiveBlockId } = useEditorActions();
 
   const handleDrop = useCallback((dragId: string, dropId: string) => {
@@ -24,9 +31,12 @@ export function BlockList() {
           key={block.id}
           block={block}
           isActive={block.id === activeBlockId}
+          editable={editable}
           onFocus={setActiveBlockId}
           onDragStart={setActiveBlockId}
           onDrop={handleDrop}
+          blockRefs={blockRefs}
+          hydratedBlocks={hydratedBlocks}
         />
       ))}
     </div>

@@ -13,34 +13,33 @@ import { useEditorActions, useBlocks } from './useEditor';
 
 type UseBlockKeyboardProps = {
   block: AnyBlock;
-  blocks: AnyBlock[];
-  onUpdate: (block: AnyBlock) => void;
   onFocus: (id: string) => void;
 };
 
 export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
   const { insertBlockAfter, removeBlock, updateBlock } = useEditorActions();
-  // Always read fresh blocks from store — avoids stale closure
   const blocks = useBlocks();
 
   return useCallback((e: KeyboardEvent<HTMLElement>) => {
-    // Always get fresh block from store by id
     const fresh = blocks.find((b) => b.id === block.id) ?? block;
     const sel   = window.getSelection();
     const flat  = sel?.anchorOffset ?? 0;
 
     // ── Enter — split block ──────────────────────────────────────────────────
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       flatToPosition(fresh, flat).match(
         ({ nodeIndex, offset }) => {
           splitBlock(fresh, nodeIndex, offset).match(
             ([original, newBlock]) => {
               updateBlock(original);
-              const newId = insertBlockAfter(fresh.id, "paragraph");
+              const newId = insertBlockAfter(fresh.id, 'paragraph');
               if (newId) {
                 updateBlock({ ...newBlock, id: newId });
                 onFocus(newId);
+                setTimeout(() => {
+                  document.querySelector<HTMLElement>(`[data-block-id="${newId}"]`)?.focus();
+                }, 0);
               }
             },
             () => {}
@@ -52,11 +51,11 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
     }
 
     // ── Backspace at start — merge with previous ─────────────────────────────
-    if (e.key === "Backspace" && flat === 0) {
+    if (e.key === 'Backspace' && flat === 0) {
       const index = blocks.findIndex((b) => b.id === fresh.id);
       if (index === 0) return;
       const prev = blocks[index - 1];
-      if (prev.type === "code" || prev.type === "equation") return;
+      if (prev.type === 'code' || prev.type === 'equation') return;
 
       e.preventDefault();
       mergeBlocks(prev, fresh).match(
@@ -64,6 +63,9 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
           updateBlock(merged);
           removeBlock(fresh.id);
           onFocus(merged.id);
+          setTimeout(() => {
+            document.querySelector<HTMLElement>(`[data-block-id="${merged.id}"]`)?.focus();
+          }, 0);
         },
         () => {}
       );
@@ -71,7 +73,7 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
     }
 
     // ── Space — markdown transform ───────────────────────────────────────────
-    if (e.key === " ") {
+    if (e.key === ' ') {
       applyMarkdownTransform(fresh, flat).match(
         ({ block: transformed, converted }) => {
           if (converted) {
@@ -85,14 +87,13 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
     }
 
     // ── Tab — indent / outdent ───────────────────────────────────────────────
-    if (e.key === "Tab") {
+    if (e.key === 'Tab') {
       e.preventDefault();
       const fn = e.shiftKey ? outdentBlock : indentBlock;
       fn(fresh).match(
         (b) => updateBlock(b as AnyBlock),
         () => {}
       );
-      return;
     }
   }, [block.id, blocks, insertBlockAfter, removeBlock, updateBlock, onFocus]);
 }
