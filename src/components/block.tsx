@@ -13,8 +13,8 @@ type Props = {
   onFocus: (id: string) => void;
   onDragStart: (id: string) => void;
   onDrop: (dragId: string, dropId: string) => void;
-  blockRefs: React.MutableRefObject<Map<string, HTMLSpanElement>>;
-  hydratedBlocks: React.MutableRefObject<Set<string>>;
+  blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
+  hydratedBlocks: React.RefObject<Set<string>>;
 };
 
 export function Block({
@@ -78,7 +78,7 @@ export function Block({
           editable={editable}
           onFocus={onFocus}
           blockRefs={blockRefs}
-          // hydratedBlocks={hydratedBlocks}
+          hydratedBlocks={hydratedBlocks}
         />
 
         {editable && isActive && <FormatToolbar block={block} />}

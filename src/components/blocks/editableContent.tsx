@@ -1,6 +1,6 @@
-import React, { useRef, useMemo } from 'react';
-import { AnyBlock, Node } from '@reiwuzen/blocky';
-import { useBlockKeyboard } from '../../hooks/useBlockKeyboard';
+import React, { useRef, useMemo } from "react";
+import { AnyBlock, Node } from "@reiwuzen/blocky";
+import { useBlockKeyboard } from "../../hooks/useBlockKeyboard";
 
 type Props = {
   block: AnyBlock;
@@ -9,6 +9,7 @@ type Props = {
   editable: boolean;
   onFocus: (id: string) => void;
   blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
+  hydratedBlocks: React.RefObject<Set<string>>
 };
 
 /**
@@ -17,98 +18,117 @@ type Props = {
  * This means the DOM is 100% owned by the browser after first paint.
  * Keyboard handlers stay fresh via a forwarded ref (handlerRef).
  */
-export function EditableContent(props: Props) {
-  const { block, className, placeholder, editable, onFocus, blockRefs } = props;
-
-  // Always-current handler refs — updated every render of the outer component,
-  // but the inner memo'd span only reads them via ref so it never re-renders.
-  const keyDownRef = useRef<React.KeyboardEventHandler<HTMLSpanElement>>(() => {});
-  const focusRef   = useRef<() => void>(() => {});
-
-  // Re-run useBlockKeyboard every render so it captures fresh store state,
-  // but expose it only through the ref so the inner span stays static.
-  const handleKeyDown = useBlockKeyboard({ block, onFocus,  });
-  keyDownRef.current  = handleKeyDown;
-  focusRef.current    = () => onFocus(block.id);
-
-  const initialHtml = useMemo(
-    () => nodesToHtml(block.content as Node[]),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [] // computed once at mount from the seed blocks
-  );
-
+export function EditableContent({
+  block,
+  className,
+  editable,
+  blockRefs,
+}: Props) {
   return (
-    <StaticSpan
-      blockId={block.id}
-      className={className ?? ''}
-      placeholder={placeholder ?? ''}
-      editable={editable}
-      initialHtml={initialHtml}
-      blockRefs={blockRefs}
-      keyDownRef={keyDownRef}
-      focusRef={focusRef}
-    />
+    <div
+      className={`blocky-content ${className ?? ""}`}
+      contentEditable={editable}
+      suppressContentEditableWarning
+      ref={(el) => {
+        if (!el) return;
+        blockRefs.current.set(block.id, el);
+      }}
+    >
+      {block.content.map((node, i) => {
+        const { classString, dataAttrs } = nodeToAttrs(node);
+
+        return (
+          <span
+            key={i}
+            className={classString}
+            {...parseDataAttrs(dataAttrs)}
+          >
+            {node.type === "equation"
+              ? node.latex
+              : node.text}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
-// ─── Inner span — never re-renders after mount ────────────────────────────────
 
-type StaticSpanProps = {
-  blockId: string;
-  className: string;
-  placeholder: string;
-  editable: boolean;
-  initialHtml: string;
-  blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
-  keyDownRef: React.RefObject<React.KeyboardEventHandler<HTMLSpanElement>>;
-  focusRef: React.RefObject<() => void>;
-};
 
-const StaticSpan = React.memo(
-  function StaticSpan({
-    blockId, className, placeholder, editable,
-    initialHtml, blockRefs, keyDownRef, focusRef,
-  }: StaticSpanProps) {
-    return (
-      <span
-        data-block-id={blockId}
-        className={`blocky-block-content ${className}`}
-        data-placeholder={placeholder}
-        contentEditable={editable}
-        suppressContentEditableWarning
-        ref={(el) => {
-          if (!el) return;
-          blockRefs.current.set(blockId, el);
-          // innerHTML is set exactly once — when the node first enters the DOM
-          if (el.dataset.hydrated) return;
-          el.innerHTML = initialHtml;
-          el.dataset.hydrated = '1';
-        }}
-        onKeyDown={(e) => keyDownRef.current(e)}
-        onFocus={() => focusRef.current()}
-      />
-    );
-  },
-  () => true // never re-render — DOM belongs to the browser
-);
+export function nodeToAttrs(n: Node): {
+  classString: string;
+  dataAttrs: string;
+} {
+  const classes: string[] = [];
+  const data: string[] = [];
+
+  // Type-based classes
+  if (n.type === "code") classes.push("blocky-code");
+  if (n.type === "equation") classes.push("blocky-equation");
+
+  if (n.type === "text") {
+    if (n.bold) classes.push("blocky-bold");
+    if (n.italic) classes.push("blocky-italic");
+    if (n.underline) classes.push("blocky-underline");
+    if (n.strikethrough) classes.push("blocky-strike");
+    if (n.highlighted) classes.push(`blocky-highlight-${n.highlighted}`);
+    if (n.color) classes.push(`blocky-color-${n.color}`);
+    if (n.link) {
+      data.push(`data-link="${escAttr(n.link)}"`);
+    }
+  }
+
+  // Data attributes (never trust raw injection)
+
+  if (n.type === "equation") {
+    data.push(`data-latex="${escAttr(n.latex)}"`);
+  }
+
+  return {
+    classString: classes.join(" "),
+    dataAttrs: data.join(" "),
+  };
+}
 
 // ─── nodes → HTML (hydration only) ────────────────────────────────────────────
 
 export function nodesToHtml(nodes: Node[]): string {
-  return nodes.map((n) => {
-    if (n.type === 'code')     return `<code>${esc(n.text)}</code>`;
-    if (n.type === 'equation') return `<span class="blocky-equation">${esc(n.latex)}</span>`;
+  return nodes
+    .map((n) => {
+      // Equation node
+      if (n.type === "equation") {
+        return `<span class="blocky-equation">${esc(n.latex)}</span>`;
+      }
 
-    let inner = esc(n.text);
-    if (n.bold)          inner = `<strong>${inner}</strong>`;
-    if (n.italic)        inner = `<em>${inner}</em>`;
-    if (n.underline)     inner = `<u>${inner}</u>`;
-    if (n.strikethrough) inner = `<s>${inner}</s>`;
-    if (n.highlighted)   inner = `<mark class="blocky-highlight-${n.highlighted}">${inner}</mark>`;
-    if (n.color)         inner = `<span class="blocky-color-${n.color}">${inner}</span>`;
-    if (n.link)          inner = `<a href="${n.link}">${inner}</a>`;
-    return inner;
-  }).join('');
+      // Code node (treated as formatted text span)
+      if (n.type === "code") {
+        return `<span class="blocky-code">${esc(n.text)}</span>`;
+      }
+
+      // Default text node
+      if (n.type === "text") {
+        const classes: string[] = [];
+
+        if (n.bold) classes.push("blocky-bold");
+        if (n.italic) classes.push("blocky-italic");
+        if (n.underline) classes.push("blocky-underline");
+        if (n.strikethrough) classes.push("blocky-strike");
+        if (n.highlighted) classes.push(`blocky-highlight-${n.highlighted}`);
+        if (n.color) classes.push(`blocky-color-${n.color}`);
+        if (n.link) classes.push("blocky-link");
+
+        // Store link safely as data attribute instead of raw href
+        const linkAttr = n.link ? ` data-link="${escAttr(n.link)}"` : "";
+
+        const classAttr =
+          classes.length > 0 ? ` class="${classes.join(" ")}"` : "";
+
+        return `<span${classAttr}${linkAttr}>${esc(n.text)}</span>`;
+      }
+
+      return "";
+    })
+    .join("");
 }
 
 // ─── DOM → Node[] (on save) ───────────────────────────────────────────────────
@@ -116,56 +136,49 @@ export function nodesToHtml(nodes: Node[]): string {
 export function domToNodes(el: HTMLElement): Node[] {
   const nodes: Node[] = [];
 
-  const walk = (node: ChildNode, formats: any = {}) => {
-    if (node.nodeType === window.Node.TEXT_NODE) {
-      const text = node.textContent ?? '';
-      if (!text) return;
-      nodes.push({ type: 'text', text, ...formats } as Node);
-      return;
-    }
-    if (!(node instanceof HTMLElement)) return;
+  el.querySelectorAll("span").forEach((span) => {
+    const text = span.innerText ?? "";
 
-    const tag      = node.tagName.toLowerCase();
-    const inherited = { ...formats };
+    const node: any = {
+      type: span.classList.contains("blocky-equation")
+        ? "equation"
+        : span.classList.contains("blocky-code")
+        ? "code"
+        : "text",
+      text,
+    };
 
-    if (tag === 'strong' || tag === 'b') inherited.bold          = true;
-    if (tag === 'em'     || tag === 'i') inherited.italic        = true;
-    if (tag === 'u')                      inherited.underline     = true;
-    if (tag === 's')                      inherited.strikethrough = true;
-    if (tag === 'a')                      inherited.link          = node.getAttribute('href') ?? undefined;
-    if (tag === 'mark') {
-      inherited.highlighted = node.className.includes('green') ? 'green' : 'yellow';
-    }
-    if (tag === 'code') {
-      nodes.push({ type: 'code', text: node.innerText });
-      return;
-    }
-    if (tag === 'span' && node.classList.contains('blocky-equation')) {
-      nodes.push({ type: 'equation', latex: node.innerText });
-      return;
-    }
+    if (span.classList.contains("blocky-bold")) node.bold = true;
+    if (span.classList.contains("blocky-italic")) node.italic = true;
+    if (span.classList.contains("blocky-underline")) node.underline = true;
+    if (span.classList.contains("blocky-strike")) node.strikethrough = true;
 
-    node.childNodes.forEach((child) => walk(child, inherited));
-  };
+    if (span.dataset.link) node.link = span.dataset.link;
+    if (span.dataset.latex) node.latex = span.dataset.latex;
 
-  el.childNodes.forEach((child) => walk(child));
+    nodes.push(node);
+  });
 
-  const merged: Node[] = [];
-  for (const node of nodes) {
-    const prev = merged[merged.length - 1];
-    if (
-      prev && node.type === 'text' && prev.type === 'text' &&
-      JSON.stringify({ ...prev, text: '' }) === JSON.stringify({ ...node, text: '' })
-    ) {
-      (prev as any).text += (node as any).text;
-    } else {
-      merged.push({ ...node });
-    }
-  }
-
-  return merged.length > 0 ? merged : [{ type: 'text', text: '' }];
+  return nodes.length ? nodes : [{ type: "text", text: "" }];
 }
 
 function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function parseDataAttrs(dataAttrs: string) {
+  const obj: Record<string, string> = {};
+  dataAttrs.split(" ").forEach((pair) => {
+    if (!pair) return;
+    const [k, v] = pair.split("=");
+    obj[k] = v?.replace(/"/g, "") ?? "";
+  });
+  return obj;
 }
