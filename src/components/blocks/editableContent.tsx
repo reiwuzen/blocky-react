@@ -27,7 +27,7 @@ export function EditableContent(props: Props) {
 
   // Re-run useBlockKeyboard every render so it captures fresh store state,
   // but expose it only through the ref so the inner span stays static.
-  const handleKeyDown = useBlockKeyboard({ block, onFocus, blockRefs });
+  const handleKeyDown = useBlockKeyboard({ block, onFocus,  });
   keyDownRef.current  = handleKeyDown;
   focusRef.current    = () => onFocus(block.id);
 

@@ -17,7 +17,7 @@ type UseBlockKeyboardProps = {
 };
 
 export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
-  const { insertBlockAfter, removeBlock, updateBlock } = useEditorActions();
+  const { createBlockAfter, removeBlock, updateBlock } = useEditorActions();
   const blocks = useBlocks();
 
   return useCallback((e: KeyboardEvent<HTMLElement>) => {
@@ -33,7 +33,7 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
           splitBlock(fresh, nodeIndex, offset).match(
             ([original, newBlock]) => {
               updateBlock(original);
-              const newId = insertBlockAfter(fresh.id, 'paragraph');
+              const newId = createBlockAfter(fresh.id, 'paragraph');
               if (newId) {
                 updateBlock({ ...newBlock, id: newId });
                 onFocus(newId);
@@ -95,5 +95,5 @@ export function useBlockKeyboard({ block, onFocus }: UseBlockKeyboardProps) {
         () => {}
       );
     }
-  }, [block.id, blocks, insertBlockAfter, removeBlock, updateBlock, onFocus]);
+  }, [block.id, blocks, createBlockAfter, removeBlock, updateBlock, onFocus]);
 }

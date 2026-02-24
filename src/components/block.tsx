@@ -78,7 +78,7 @@ export function Block({
           editable={editable}
           onFocus={onFocus}
           blockRefs={blockRefs}
-          hydratedBlocks={hydratedBlocks}
+          // hydratedBlocks={hydratedBlocks}
         />
 
         {editable && isActive && <FormatToolbar block={block} />}
