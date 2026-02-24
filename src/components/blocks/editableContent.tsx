@@ -1,7 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { AnyBlock, Node } from '@reiwuzen/blocky';
 import { useBlockKeyboard } from '../../hooks/useBlockKeyboard';
-import { useEditorActions, useBlocks } from '../../hooks/useEditor';
 
 type Props = {
   block: AnyBlock;
@@ -9,74 +8,98 @@ type Props = {
   placeholder?: string;
   editable: boolean;
   onFocus: (id: string) => void;
-  // shared refs from BlockList so Editor can serialize on save
-  blockRefs: React.MutableRefObject<Map<string, HTMLSpanElement>>;
-  hydratedBlocks: React.MutableRefObject<Set<string>>;
+  blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
 };
 
-export function EditableContent({
-  block,
-  className,
-  placeholder,
-  editable,
-  onFocus,
-  blockRefs,
-  hydratedBlocks,
-}: Props) {
-  const { updateBlock } = useEditorActions();
-  const blocks          = useBlocks();
-  const handleKeyDown   = useBlockKeyboard({ block, onFocus });
+/**
+ * The inner span is wrapped in a memo that NEVER re-renders after mount.
+ * React.memo(() => true) tells React "props didn't change, skip re-render".
+ * This means the DOM is 100% owned by the browser after first paint.
+ * Keyboard handlers stay fresh via a forwarded ref (handlerRef).
+ */
+export function EditableContent(props: Props) {
+  const { block, className, placeholder, editable, onFocus, blockRefs } = props;
 
-  const initialText = getInitialText(block.content as Node[]);
+  // Always-current handler refs — updated every render of the outer component,
+  // but the inner memo'd span only reads them via ref so it never re-renders.
+  const keyDownRef = useRef<React.KeyboardEventHandler<HTMLSpanElement>>(() => {});
+  const focusRef   = useRef<() => void>(() => {});
 
-  const handleInput = (e: React.FormEvent<HTMLSpanElement>) => {
-    const el   = e.currentTarget;
-    const text = el.textContent ?? '';
-    // Keep store in sync with current plain text so keyboard ops work
-    updateBlock({ ...block, content: [{ type: 'text', text }] } as AnyBlock);
-  };
+  // Re-run useBlockKeyboard every render so it captures fresh store state,
+  // but expose it only through the ref so the inner span stays static.
+  const handleKeyDown = useBlockKeyboard({ block, onFocus, blockRefs });
+  keyDownRef.current  = handleKeyDown;
+  focusRef.current    = () => onFocus(block.id);
+
+  const initialHtml = useMemo(
+    () => nodesToHtml(block.content as Node[]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // computed once at mount from the seed blocks
+  );
 
   return (
-    <span
-      data-block-id={block.id}
-      className={`blocky-block-content ${className ?? ''}`}
-      data-placeholder={placeholder}
-      contentEditable={editable}
-      suppressContentEditableWarning
-      ref={(el) => {
-        if (!el) return;
-        blockRefs.current.set(block.id, el);
-        // Hydrate once — never again
-        if (hydratedBlocks.current.has(block.id)) return;
-        el.innerHTML = nodesToHtml(block.content as Node[]);
-        hydratedBlocks.current.add(block.id);
-      }}
-      onInput={handleInput}
-      onKeyDown={handleKeyDown}
-      onFocus={() => onFocus(block.id)}
+    <StaticSpan
+      blockId={block.id}
+      className={className ?? ''}
+      placeholder={placeholder ?? ''}
+      editable={editable}
+      initialHtml={initialHtml}
+      blockRefs={blockRefs}
+      keyDownRef={keyDownRef}
+      focusRef={focusRef}
     />
   );
 }
 
-// ─── Initial plain text (for store sync only) ──────────────────────────────────
+// ─── Inner span — never re-renders after mount ────────────────────────────────
 
-function getInitialText(nodes: Node[]): string {
-  return nodes.map((n) => {
-    if (n.type === 'text')     return n.text;
-    if (n.type === 'code')     return n.text;
-    if (n.type === 'equation') return n.latex;
-    return '';
-  }).join('');
-}
+type StaticSpanProps = {
+  blockId: string;
+  className: string;
+  placeholder: string;
+  editable: boolean;
+  initialHtml: string;
+  blockRefs: React.RefObject<Map<string, HTMLSpanElement>>;
+  keyDownRef: React.RefObject<React.KeyboardEventHandler<HTMLSpanElement>>;
+  focusRef: React.RefObject<() => void>;
+};
 
-// ─── nodes → HTML string (hydration only, runs once per block) ────────────────
+const StaticSpan = React.memo(
+  function StaticSpan({
+    blockId, className, placeholder, editable,
+    initialHtml, blockRefs, keyDownRef, focusRef,
+  }: StaticSpanProps) {
+    return (
+      <span
+        data-block-id={blockId}
+        className={`blocky-block-content ${className}`}
+        data-placeholder={placeholder}
+        contentEditable={editable}
+        suppressContentEditableWarning
+        ref={(el) => {
+          if (!el) return;
+          blockRefs.current.set(blockId, el);
+          // innerHTML is set exactly once — when the node first enters the DOM
+          if (el.dataset.hydrated) return;
+          el.innerHTML = initialHtml;
+          el.dataset.hydrated = '1';
+        }}
+        onKeyDown={(e) => keyDownRef.current(e)}
+        onFocus={() => focusRef.current()}
+      />
+    );
+  },
+  () => true // never re-render — DOM belongs to the browser
+);
+
+// ─── nodes → HTML (hydration only) ────────────────────────────────────────────
 
 export function nodesToHtml(nodes: Node[]): string {
   return nodes.map((n) => {
-    if (n.type === 'code')     return `<code><span>${esc(n.text)}</span></code>`;
+    if (n.type === 'code')     return `<code>${esc(n.text)}</code>`;
     if (n.type === 'equation') return `<span class="blocky-equation">${esc(n.latex)}</span>`;
 
-    let inner = `<span>${esc(n.text)}</span>`;
+    let inner = esc(n.text);
     if (n.bold)          inner = `<strong>${inner}</strong>`;
     if (n.italic)        inner = `<em>${inner}</em>`;
     if (n.underline)     inner = `<u>${inner}</u>`;
@@ -88,7 +111,7 @@ export function nodesToHtml(nodes: Node[]): string {
   }).join('');
 }
 
-// ─── DOM → Node[] (used on save) ──────────────────────────────────────────────
+// ─── DOM → Node[] (on save) ───────────────────────────────────────────────────
 
 export function domToNodes(el: HTMLElement): Node[] {
   const nodes: Node[] = [];
@@ -127,7 +150,6 @@ export function domToNodes(el: HTMLElement): Node[] {
 
   el.childNodes.forEach((child) => walk(child));
 
-  // Merge adjacent text nodes with identical formatting
   const merged: Node[] = [];
   for (const node of nodes) {
     const prev = merged[merged.length - 1];

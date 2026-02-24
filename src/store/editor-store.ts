@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import {
   AnyBlock,
+  createBlockAfter,
   insertBlockAfter,
+  duplicateBlockAfter,
   deleteBlock,
   duplicateBlock,
   moveBlock,
@@ -15,7 +17,7 @@ export type EditorStore = {
 
   setBlocks: (blocks: AnyBlock[]) => void;
   updateBlock: (block: AnyBlock) => void;
-  insertAfter: (afterId: string, type?: AnyBlock["type"]) => string | null;
+  createBlockAfter: (afterId: string, type?: AnyBlock["type"]) => string | null;
   removeBlock: (id: string) => string;
   duplicate: (id: string) => void;
   move: (id: string, direction: "up" | "down") => void;
@@ -45,8 +47,8 @@ export function createEditorStore(config: EditorStoreConfig = {}) {
       config.onChange?.(blocks);
     },
 
-    insertAfter: (afterId, type = "paragraph") => {
-      const result = insertBlockAfter(get().blocks, afterId, type);
+    createBlockAfter: (afterId, type = "paragraph") => {
+      const result = createBlockAfter(get().blocks, afterId, type);
       if (!result.ok) return null;
       const { blocks, newId } = result.value;
       set({ blocks, activeBlockId: newId });
@@ -62,15 +64,10 @@ export function createEditorStore(config: EditorStoreConfig = {}) {
     },
 
     duplicate: (id) => {
-      const block = get().blocks.find((b) => b.id === id);
-      if (!block) return;
-      const dup = duplicateBlock(block, crypto.randomUUID());
-      const result = insertBlockAfter(get().blocks, id, block.type);
-      if (!result.ok) return;
-      const blocks = result.value.blocks.map((b) =>
-        b.id === result.value.newId ? dup : b
-      );
-      set({ blocks, activeBlockId: dup.id });
+      const res = duplicateBlockAfter(get().blocks,id)
+      if (res == null) return
+      const blocks = [...res.value.blocks]
+      set({ blocks:blocks, activeBlockId: res.value.newFocusId });
       config.onChange?.(blocks);
     },
 

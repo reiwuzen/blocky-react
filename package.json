@@ -37,7 +37,7 @@
     "react-dom": ">=18"
   },
   "dependencies": {
-    "@reiwuzen/blocky": "^1.2.0",
+    "@reiwuzen/blocky": "^1.3.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

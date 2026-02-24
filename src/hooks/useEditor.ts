@@ -15,7 +15,7 @@ export function useActiveBlockId() { return useEditor((s) => s.activeBlockId); }
 export function useEditorActions() {
   const setBlocks = useEditor(s => s.setBlocks)
   const updateBlock = useEditor(s=> s.updateBlock)
-  const insertBlockAfter = useEditor(s=>s.insertAfter)
+  const createBlockAfter = useEditor(s=>s.createBlockAfter)
   const removeBlock = useEditor(s=>s.removeBlock)
   const duplicateBlock = useEditor(s=>s.duplicate)
   const moveBlock = useEditor(s=>s.move)
@@ -23,7 +23,7 @@ export function useEditorActions() {
   return useMemo(() => ({
     setBlocks,
     updateBlock,
-    insertBlockAfter,
+    createBlockAfter,
     removeBlock,
     duplicateBlock,
     moveBlock,
@@ -31,7 +31,7 @@ export function useEditorActions() {
   }), [
     setBlocks,
     updateBlock,
-    insertBlockAfter,
+    createBlockAfter,
     removeBlock,
     duplicateBlock,
     moveBlock,
