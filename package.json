@@ -1,6 +1,6 @@
 {
   "name": "@reiwuzen/blocky-react",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "React UI layer for @reiwuzen/blocky — composable block editor components.",
   "author": "Rei WuZen",
   "license": "ISC",
