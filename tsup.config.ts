@@ -7,6 +7,7 @@ export default defineConfig({
   dts: true,
   clean: true,
   publicDir: false,
+  external: ['react', 'react-dom'],
   async onSuccess() {
     const { copyFileSync } = await import('fs');
     copyFileSync('src/styles.css', 'dist/styles.css');
