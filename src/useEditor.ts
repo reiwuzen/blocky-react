@@ -154,12 +154,7 @@ export function useEditorStore({
     })
   , []); // blocksRef is a stable ref — no dep needed
 
-  useEffect(() => {
-    const was = prevEditable.current;
-    prevEditable.current = editable;
-    if (!was || editable) return;
-    onChange?.(serialize());
-  }, [editable, onChange, serialize]);
+ 
 
   // ── Block actions ─────────────────────────────────────────────────────────
   // Rule: setBlocks receives ONLY pure array calculations.
