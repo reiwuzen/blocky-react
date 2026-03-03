@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, forwardRef, useImperativeHandle } from "react";
 import type { AnyBlock, Block as BT } from "@reiwuzen/blocky";
 import { EditorContext, useEditorStore, useCaretRestore } from "./useEditor";
 import type { EditorProviderOptions } from "./useEditor";
@@ -7,6 +7,12 @@ import { BlockMenu } from "./blockMenu";
 import { FormatBar } from "./formatBar";
 import { isOnFirstLine, isOnLastLine, placeCursorByX } from "./utils";
 
+/**
+ * expose api's of the editor
+ */
+export type EditorHandle = {
+  serialize: () => AnyBlock[];
+};
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function blockClassName(type: AnyBlock["type"]): string {
@@ -36,7 +42,7 @@ function blockPlaceholder(type: AnyBlock["type"]): string {
 // ─── Marker ────────────────────────────────────────────────────────────────────
 
 function Marker({ block, index }: { block: AnyBlock; index: number }) {
-  const { handleToggleTodo } = React.useContext(EditorContext)!;
+  const { handleToggleTodo,editable } = React.useContext(EditorContext)!;
 
   if (block.type === "bullet") {
     const depth = (block as BT<"bullet">).meta.depth ?? 0;
@@ -51,7 +57,7 @@ function Marker({ block, index }: { block: AnyBlock; index: number }) {
         type="checkbox"
         className="be-marker be-marker--checkbox"
         checked={!!(block as BT<"todo">).meta.checked}
-        onChange={() => handleToggleTodo(block.id)}
+        onChange={() => { if(!editable) return;  handleToggleTodo(block.id)}}
       />
     );
   }
@@ -69,6 +75,7 @@ function EditorInner({ className, placeholder }: { className?: string; placehold
     splitBlockAtCursor, selectAll,
     handleDrop,
   } = React.useContext(EditorContext)!;
+
 
   // Keyboard delegation
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -231,12 +238,18 @@ export type EditorProps = EditorProviderOptions & {
   placeholder?: string;
 };
 
-export function Editor({ className, placeholder, ...storeOptions }: EditorProps) {
-  const store = useEditorStore(storeOptions);
+export const Editor = forwardRef<EditorHandle, EditorProps>(
+  ({ className, placeholder, ...storeOptions }, ref) => {
+    const store = useEditorStore(storeOptions);
 
-  return (
-    <EditorContext.Provider value={store}>
-      <EditorInner className={className} placeholder={placeholder} />
-    </EditorContext.Provider>
-  );
-}
+    useImperativeHandle(ref, () => ({
+      serialize: store.serialize,
+    }));
+
+    return (
+      <EditorContext.Provider value={store}>
+        <EditorInner className={className} placeholder={placeholder} />
+      </EditorContext.Provider>
+    );
+  }
+);
