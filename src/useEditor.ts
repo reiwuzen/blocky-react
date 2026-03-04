@@ -354,10 +354,8 @@ export function useEditorStore({
     if (!block) return;
 
     // read live DOM content
-    const liveBlock: AnyBlock = {
-      ...block,
-      content:
-        block.type === "code"
+    const liveContent: AnyBlock["content"] = el
+        ? block.type === "code"
           ? [{ type: "code", text: el.textContent ?? "" }]
           : block.type === "equation"
             ? [
@@ -371,8 +369,15 @@ export function useEditorStore({
                     "",
                 },
               ]
-            : (domToNodes(el) as AnyBlock["content"]),
-    };
+            : (domToNodes(el) as AnyBlock["content"])
+        : block.content;
+
+      const liveBlock = {
+        id: block.id,
+        type: block.type,
+        content: liveContent,
+        meta: block.meta,
+      } as AnyBlock;
 
     applyEnterTransform(liveBlock).match(
       ({ block: updated, converted }) => {
@@ -504,10 +509,30 @@ export function useEditorStore({
     const block = blocksRef.current.find((b) => b.id === blockId);
     if (!block) return false;
 
-    const liveBlock: AnyBlock = {
-      ...block,
-      content: domToNodes(el),
-    };
+    const liveContent: AnyBlock["content"] = el
+        ? block.type === "code"
+          ? [{ type: "code", text: el.textContent ?? "" }]
+          : block.type === "equation"
+            ? [
+                {
+                  type: "equation",
+                  latex:
+                    el
+                      .querySelector(".be-equation")
+                      ?.getAttribute("data-latex") ??
+                    el.textContent ??
+                    "",
+                },
+              ]
+            : (domToNodes(el) as AnyBlock["content"])
+        : block.content;
+
+      const liveBlock = {
+        id: block.id,
+        type: block.type,
+        content: liveContent,
+        meta: block.meta,
+      } as AnyBlock;
 
     let converted = false;
 
