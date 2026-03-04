@@ -8,7 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import type { AnyBlock, BlockType } from "@reiwuzen/blocky";
+import {
+  indentBlock,
+  outdentBlock,
+  type AnyBlock,
+  type BlockType,
+} from "@reiwuzen/blocky";
 import {
   createBlock,
   insertBlockAfter,
@@ -16,6 +21,8 @@ import {
   deleteBlock,
   toggleTodo,
   changeBlockType,
+  applyMarkdownTransform,
+  applyEnterTransform,
 } from "@reiwuzen/blocky";
 import { domToNodes, nodesToHtml, placeCursorAtChar } from "./utils";
 
@@ -45,7 +52,11 @@ export type EditorStore = {
   handleToggleTodo: (id: string) => void;
   handleDrop: (dragId: string, dropId: string) => void;
   handleChangeType: (blockId: string, type: BlockType) => void;
+  handleIndent: (blockId: string) => void;
+  handleOutdent: (blockId: string) => void;
+  handleEnter: (blockId: string) => void;
   splitBlockAtCursor: (blockId: string) => void;
+  formatBlock: (blockId: string) => boolean;
   selectAll: () => void;
 
   // Menu actions
@@ -97,7 +108,10 @@ export function useCaretRestore() {
     }
 
     const sel = window.getSelection();
-    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
   }); // intentionally no dep array
 }
 
@@ -114,18 +128,20 @@ export function useEditorStore({
   editable = true,
   onChange,
 }: EditorProviderOptions): EditorStore {
-
   const [blocks, setBlocks] = useState<AnyBlock[]>(() => {
     if (initialBlocks?.length) return initialBlocks;
-    return createBlock("paragraph").match((b) => [b], () => []);
+    return createBlock("paragraph").match(
+      (b) => [b],
+      () => [],
+    );
   });
 
   const [blockMenu, setBlockMenuState] = useState<BlockMenuState>(null);
 
-  const blockRefs      = useRef<Map<string, HTMLDivElement>>(new Map());
+  const blockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const hydratedBlocks = useRef<Set<string>>(new Set());
-  const pendingHtml    = useRef<Map<string, string>>(new Map());
-  const pendingCaret   = useRef<PendingCaret | null>(null);
+  const pendingHtml = useRef<Map<string, string>>(new Map());
+  const pendingCaret = useRef<PendingCaret | null>(null);
 
   // Always-current mirror of blocks — readable synchronously in callbacks
   // without closing over a stale value.
@@ -136,25 +152,33 @@ export function useEditorStore({
 
   // ── Serialization ──────────────────────────────────────────────────────────
 
-  const serialize = useCallback((): AnyBlock[] =>
-    blocksRef.current.map((block) => {
-      const el = blockRefs.current.get(block.id);
-      if (!el) return block;
+  const serialize = useCallback(
+    (): AnyBlock[] =>
+      blocksRef.current.map((block) => {
+        const el = blockRefs.current.get(block.id);
+        if (!el) return block;
 
-      const content: AnyBlock["content"] =
-        block.type === "code"
-          ? [{ type: "code", text: el.textContent ?? "" }]
-          : block.type === "equation"
-          ? [{ type: "equation",
-               latex: el.querySelector(".be-equation")?.getAttribute("data-latex")
-                      ?? el.textContent ?? "" }]
-          : (domToNodes(el) as AnyBlock["content"]);
+        const content: AnyBlock["content"] =
+          block.type === "code"
+            ? [{ type: "code", text: el.textContent ?? "" }]
+            : block.type === "equation"
+              ? [
+                  {
+                    type: "equation",
+                    latex:
+                      el
+                        .querySelector(".be-equation")
+                        ?.getAttribute("data-latex") ??
+                      el.textContent ??
+                      "",
+                  },
+                ]
+              : (domToNodes(el) as AnyBlock["content"]);
 
-      return { ...block, content } as AnyBlock;
-    })
-  , []); // blocksRef is a stable ref — no dep needed
-
- 
+        return { ...block, content } as AnyBlock;
+      }),
+    [],
+  ); // blocksRef is a stable ref — no dep needed
 
   // ── Block actions ─────────────────────────────────────────────────────────
   // Rule: setBlocks receives ONLY pure array calculations.
@@ -162,15 +186,18 @@ export function useEditorStore({
   //       Caret intent is written to pendingCaret before setBlocks,
   //       then applied by useCaretRestore after the commit.
 
-  const addBlockAfter = useCallback((afterId: string, type: BlockType = "paragraph") => {
-    createBlockAfter(blocksRef.current, afterId, type).match(
-      ({ blocks: next, newId }) => {
-        pendingCaret.current = { blockId: newId, charOffset: 0 };
-        setBlocks(() => next);
-      },
-      () => {}
-    );
-  }, []);
+  const addBlockAfter = useCallback(
+    (afterId: string, type: BlockType = "paragraph") => {
+      createBlockAfter(blocksRef.current, afterId, type).match(
+        ({ blocks: next, newId }) => {
+          pendingCaret.current = { blockId: newId, charOffset: 0 };
+          setBlocks(() => next);
+        },
+        () => {},
+      );
+    },
+    [],
+  );
 
   const removeBlock = useCallback((id: string) => {
     const cur = blocksRef.current;
@@ -188,8 +215,8 @@ export function useEditorStore({
     if (idx <= 0) return;
 
     const prevBlock = cur[idx - 1];
-    const prevEl    = blockRefs.current.get(prevBlock.id);
-    const currEl    = blockRefs.current.get(id);
+    const prevEl = blockRefs.current.get(prevBlock.id);
+    const currEl = blockRefs.current.get(id);
     if (!prevEl || !currEl) return;
 
     // 1. DOM READ
@@ -200,7 +227,10 @@ export function useEditorStore({
     while (currEl.firstChild) prevEl.appendChild(currEl.firstChild);
 
     // 3. Park caret intent
-    pendingCaret.current = { blockId: prevBlock.id, charOffset: junctionCharOffset };
+    pendingCaret.current = {
+      blockId: prevBlock.id,
+      charOffset: junctionCharOffset,
+    };
 
     // 4. Pure state update — filter only, no DOM access
     setBlocks((prev) => prev.filter((b) => b.id !== id));
@@ -211,8 +241,8 @@ export function useEditorStore({
       const block = prev.find((b) => b.id === id);
       if (!block) return prev;
       return toggleTodo(block).match(
-        (updated) => prev.map((b) => b.id === id ? (updated as AnyBlock) : b),
-        () => prev
+        (updated) => prev.map((b) => (b.id === id ? (updated as AnyBlock) : b)),
+        () => prev,
       );
     });
   }, []);
@@ -220,7 +250,7 @@ export function useEditorStore({
   const handleDrop = useCallback((dragId: string, dropId: string) => {
     setBlocks((prev) => {
       const from = prev.findIndex((b) => b.id === dragId);
-      const to   = prev.findIndex((b) => b.id === dropId);
+      const to = prev.findIndex((b) => b.id === dropId);
       if (from === -1 || to === -1) return prev;
       const next = [...prev];
       const [moved] = next.splice(from, 1);
@@ -242,17 +272,25 @@ export function useEditorStore({
         ? block.type === "code"
           ? [{ type: "code", text: el.textContent ?? "" }]
           : block.type === "equation"
-          ? [{ type: "equation",
-               latex: el.querySelector(".be-equation")?.getAttribute("data-latex")
-                      ?? el.textContent ?? "" }]
-          : (domToNodes(el) as AnyBlock["content"])
+            ? [
+                {
+                  type: "equation",
+                  latex:
+                    el
+                      .querySelector(".be-equation")
+                      ?.getAttribute("data-latex") ??
+                    el.textContent ??
+                    "",
+                },
+              ]
+            : (domToNodes(el) as AnyBlock["content"])
         : block.content;
 
       const liveBlock = {
-        id:      block.id,
-        type:    block.type,
+        id: block.id,
+        type: block.type,
         content: liveContent,
-        meta:    block.meta,
+        meta: block.meta,
       } as AnyBlock;
 
       return changeBlockType(liveBlock, type).match(
@@ -262,9 +300,11 @@ export function useEditorStore({
             // If the div has no text (e.g. was an empty new block) ensure every
             // span has a <br> so the cursor has a valid insertion point.
             if (!el.textContent) {
-              el.querySelectorAll<HTMLSpanElement>(":scope > span").forEach((s) => {
-                if (!s.innerHTML) s.innerHTML = "<br>";
-              });
+              el.querySelectorAll<HTMLSpanElement>(":scope > span").forEach(
+                (s) => {
+                  if (!s.innerHTML) s.innerHTML = "<br>";
+                },
+              );
               // If there are no spans at all (e.g. empty content array), add one
               if (!el.querySelector(":scope > span")) {
                 const span = document.createElement("span");
@@ -273,11 +313,86 @@ export function useEditorStore({
               }
             }
           }
-          return prev.map((b) => b.id === blockId ? (updated as AnyBlock) : b);
+          return prev.map((b) =>
+            b.id === blockId ? (updated as AnyBlock) : b,
+          );
         },
-        () => prev
+        () => prev,
       );
     });
+  }, []);
+
+  const handleIndent = useCallback((blockId: string) => {
+    setBlocks((prev) => {
+      const block = prev.find((b) => b.id === blockId);
+      if (!block) return prev;
+
+      return indentBlock(block).match(
+        (updated) => prev.map((b) => (b.id === blockId ? updated : b)),
+        () => prev,
+      );
+    });
+  }, []);
+
+  const handleOutdent = useCallback((blockId: string) => {
+    setBlocks((prev) => {
+      const block = prev.find((b) => b.id === blockId);
+      if (!block) return prev;
+
+      return outdentBlock(block).match(
+        (updated) => prev.map((b) => (b.id === blockId ? updated : b)),
+        () => prev,
+      );
+    });
+  }, []);
+  const handleEnter = useCallback((blockId: string) => {
+    const el = blockRefs.current.get(blockId);
+    if (!el) return;
+
+    const cur = blocksRef.current;
+    const block = cur.find((b) => b.id === blockId);
+    if (!block) return;
+
+    // read live DOM content
+    const liveBlock: AnyBlock = {
+      ...block,
+      content:
+        block.type === "code"
+          ? [{ type: "code", text: el.textContent ?? "" }]
+          : block.type === "equation"
+            ? [
+                {
+                  type: "equation",
+                  latex:
+                    el
+                      .querySelector(".be-equation")
+                      ?.getAttribute("data-latex") ??
+                    el.textContent ??
+                    "",
+                },
+              ]
+            : (domToNodes(el) as AnyBlock["content"]),
+    };
+
+    applyEnterTransform(liveBlock).match(
+      ({ block: updated, converted }) => {
+        if (converted) {
+          setBlocks((prev) => {
+            console.log("updated: ", updated);
+            return prev.map((b) => (b.id === blockId ? updated : b));
+          });
+
+          el.innerHTML = nodesToHtml(updated.content);
+          return;
+        }
+
+        // fallback → normal split
+        splitBlockAtCursor(blockId);
+      },
+      () => {
+        splitBlockAtCursor(blockId);
+      },
+    );
   }, []);
 
   const splitBlockAtCursor = useCallback((blockId: string) => {
@@ -295,7 +410,7 @@ export function useEditorStore({
           pendingCaret.current = { blockId: newId, charOffset: 0 };
           setBlocks(() => next);
         },
-        () => {}
+        () => {},
       );
       return;
     }
@@ -314,21 +429,21 @@ export function useEditorStore({
     // cursor at offset 0 of textNode  → start = index of its parent span
     // cursor at end of textNode       → start = index of next sibling (skip this span)
     let startContainer: Node = range.startContainer;
-    let startOffset: number  = range.startOffset;
+    let startOffset: number = range.startOffset;
 
     if (startContainer.nodeType === Node.TEXT_NODE) {
       const parentSpan = startContainer.parentElement!;
-      const spans      = Array.from(el.childNodes);
-      const spanIdx    = spans.indexOf(parentSpan);
+      const spans = Array.from(el.childNodes);
+      const spanIdx = spans.indexOf(parentSpan);
 
       if (startOffset === 0) {
         // cursor at very start of span → include this span in the tail
         startContainer = el;
-        startOffset    = spanIdx;
+        startOffset = spanIdx;
       } else if (startOffset === (startContainer as Text).length) {
         // cursor at very end of span → tail starts at the NEXT sibling
         startContainer = el;
-        startOffset    = spanIdx + 1;
+        startOffset = spanIdx + 1;
       }
       // mid-span: let extractContents split the text naturally
     }
@@ -340,9 +455,11 @@ export function useEditorStore({
     tmp.appendChild(tailRange.extractContents());
 
     // Clean up any empty spans extractContents left behind in the source div
-    Array.from(el.querySelectorAll<HTMLSpanElement>(":scope > span")).forEach((s) => {
-      if (!s.textContent && !s.querySelector("br")) el.removeChild(s);
-    });
+    Array.from(el.querySelectorAll<HTMLSpanElement>(":scope > span")).forEach(
+      (s) => {
+        if (!s.textContent && !s.querySelector("br")) el.removeChild(s);
+      },
+    );
 
     // Wrap any bare text nodes that landed directly in tmp
     Array.from(tmp.childNodes).forEach((node) => {
@@ -360,16 +477,54 @@ export function useEditorStore({
     const tailHtml = tmp.innerHTML || "<span><br></span>";
 
     // 2. Park html + caret intent
-    createBlock("paragraph").match((newBlock) => {
-      pendingHtml.current.set(newBlock.id, tailHtml);
-      pendingCaret.current = { blockId: newBlock.id, charOffset: 0 };
+    createBlock("paragraph").match(
+      (newBlock) => {
+        pendingHtml.current.set(newBlock.id, tailHtml);
+        pendingCaret.current = { blockId: newBlock.id, charOffset: 0 };
 
-      // 3. Pure state update
-      insertBlockAfter(blocksRef.current, blockId, newBlock as AnyBlock).match(
-        ({ blocks: next }) => { setBlocks(() => next); },
-        () => {}
-      );
-    }, () => {});
+        // 3. Pure state update
+        insertBlockAfter(
+          blocksRef.current,
+          blockId,
+          newBlock as AnyBlock,
+        ).match(
+          ({ blocks: next }) => {
+            setBlocks(() => next);
+          },
+          () => {},
+        );
+      },
+      () => {},
+    );
+  }, []);
+  const formatBlock = useCallback((blockId: string): boolean => {
+    const el = blockRefs.current.get(blockId);
+    if (!el) return false;
+
+    const block = blocksRef.current.find((b) => b.id === blockId);
+    if (!block) return false;
+
+    const liveBlock: AnyBlock = {
+      ...block,
+      content: domToNodes(el),
+    };
+
+    let converted = false;
+
+    applyMarkdownTransform(liveBlock, el.textContent?.length ?? 0).match(
+      ({ block: updated, converted: didConvert }) => {
+        if (!didConvert) return;
+
+        converted = true;
+
+        setBlocks((prev) => prev.map((b) => (b.id === blockId ? updated : b)));
+
+        el.innerHTML = nodesToHtml(updated.content);
+      },
+      () => {},
+    );
+
+    return converted;
   }, []);
 
   const selectAll = useCallback(() => {
@@ -377,33 +532,74 @@ export function useEditorStore({
     if (divs.length === 0) return;
     const range = document.createRange();
     range.setStart(divs[0], 0);
-    range.setEnd(divs[divs.length - 1], divs[divs.length - 1].childNodes.length);
+    range.setEnd(
+      divs[divs.length - 1],
+      divs[divs.length - 1].childNodes.length,
+    );
     const sel = window.getSelection();
-    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
   }, []);
 
   // ── Menu ───────────────────────────────────────────────────────────────────
 
-  const openMenu  = useCallback((blockId: string, mode: BlockMenuMode) =>
-    setBlockMenuState({ blockId, mode }), []);
+  const openMenu = useCallback(
+    (blockId: string, mode: BlockMenuMode) =>
+      setBlockMenuState({ blockId, mode }),
+    [],
+  );
   const closeMenu = useCallback(() => setBlockMenuState(null), []);
 
   // ── Stable store ───────────────────────────────────────────────────────────
 
-  return useMemo(() => ({
-    blocks, editable, blockMenu,
-    blockRefs, hydratedBlocks, pendingHtml, pendingCaret,
-    addBlockAfter, removeBlock, mergeWithPrev,
-    handleToggleTodo, handleDrop, handleChangeType,
-    splitBlockAtCursor, selectAll,
-    openMenu, closeMenu, serialize,
-  }), [
-    blocks, editable, blockMenu,
-    addBlockAfter, removeBlock, mergeWithPrev,
-    handleToggleTodo, handleDrop, handleChangeType,
-    splitBlockAtCursor, selectAll,
-    openMenu, closeMenu, serialize,
-  ]);
+  return useMemo(
+    () => ({
+      blocks,
+      editable,
+      blockMenu,
+      blockRefs,
+      hydratedBlocks,
+      pendingHtml,
+      pendingCaret,
+      addBlockAfter,
+      removeBlock,
+      mergeWithPrev,
+      handleToggleTodo,
+      handleDrop,
+      handleChangeType,
+      handleIndent,
+      handleOutdent,
+      handleEnter,
+      splitBlockAtCursor,
+      formatBlock,
+      selectAll,
+      openMenu,
+      closeMenu,
+      serialize,
+    }),
+    [
+      blocks,
+      editable,
+      blockMenu,
+      addBlockAfter,
+      removeBlock,
+      mergeWithPrev,
+      handleToggleTodo,
+      handleDrop,
+      handleChangeType,
+      handleIndent,
+      handleOutdent,
+      handleEnter,
+      splitBlockAtCursor,
+      formatBlock,
+      selectAll,
+      openMenu,
+      closeMenu,
+      serialize,
+    ],
+  );
 }
 
 export { EditorContext };
