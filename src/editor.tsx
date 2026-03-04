@@ -73,13 +73,19 @@ function EditorInner({ className, placeholder }: { className?: string; placehold
     blockMenu, openMenu,
     addBlockAfter, removeBlock, mergeWithPrev,
     splitBlockAtCursor, selectAll,
+    handleIndent,
+    handleOutdent,
+    formatBlock,
     handleDrop,
+    handleEnter,
   } = React.useContext(EditorContext)!;
 
 
   // Keyboard delegation
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!editable) return;
+
+
 
     // Ctrl/Cmd+A → select all blocks
     if (e.key === "a" && (e.ctrlKey || e.metaKey)) {
@@ -121,11 +127,31 @@ function EditorInner({ className, placeholder }: { className?: string; placehold
       // If not on the edge, let the browser handle it normally within the block
       return;
     }
+    if (e.key === " ") {
+  const converted = formatBlock(blockId);
+
+  if (converted) {
+    e.preventDefault();
+  }
+}
+
+
+    if (e.key === "Tab") {
+
+  e.preventDefault();
+  if (e.shiftKey) {
+    handleOutdent(blockId)
+  } else {
+    handleIndent(blockId)
+  }
+}
+
+  
 
     // ── Enter — split block ──────────────────────────────────────────────────
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      splitBlockAtCursor(blockId);
+      handleEnter(blockId)
       return;
     }
 
