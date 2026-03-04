@@ -87,6 +87,7 @@
 .be-content-wrapper[data-meta-depth="3"] { padding-left: 4.5rem; }
 .be-content-wrapper[data-meta-depth="4"] { padding-left: 6rem; }
 .be-content-wrapper[data-meta-depth="5"] { padding-left: 7.5rem; }
+.be-content-wrapper[data-meta-depth="6"] { padding-left: 9rem; }
 
 /* ─── Markers ────────────────────────────────────────────────────────────────── */
 
