@@ -39,7 +39,7 @@ export function Block({ block, placeholder, className }: Props) {
   return (
     <div
       ref={divRef}
-      className={`be-content${className ? ` ${className}` : ""}`}
+      className={`be-content ${className ? ` ${className}` : ""}`}
       contentEditable={editable}
       
       suppressContentEditableWarning
